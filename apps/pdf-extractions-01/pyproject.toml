@@ -1,0 +1,11 @@
+[project]
+name = "pdf-extractions-01"
+version = "0.1.0"
+description = "A utility for extracting and processing content from PDF documents"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3==1.43.32",
+    "loguru>=0.7.3",
+    "pymupdf4llm==1.27.2.3",
+    "python-dotenv==1.2.2",
+]
