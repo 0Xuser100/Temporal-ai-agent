@@ -22,8 +22,8 @@ log = logger
 
 # ── Step 1: Download ─────────────────────────────────────────────────────────
 @activity.defn
-async def download_pdf(parms:DownloadInput)-> DownloadOutput: # we now treat DownloadInput as data type so that we type parms:DownloadInput
-    bucket,key=parse_s3_path(parms.s3_path)
+async def download_pdf(params:DownloadInput)-> DownloadOutput: # we now treat DownloadInput as data type so that we type params:DownloadInput
+    bucket,key=parse_s3_path(params.s3_path)
     filename=Path(key).name
 
     local_path=str(Path(TEMP_DIR)/filename)
@@ -39,7 +39,7 @@ async def download_pdf(parms:DownloadInput)-> DownloadOutput: # we now treat Dow
 
 # ── Step 2: Extract to Markdown ───────────────────────────────────────────────
 @activity.defn
-async def extract_to_markdown(parms:ExtractInput) -> ExtractOutput:
+async def extract_to_markdown(params:ExtractInput) -> ExtractOutput:
     activity.logger.info(f"Extracting text from {params.local_path}")
     markdown_text = pymupdf4llm.to_markdown(params.local_path)
     activity.logger.info(f"Extraction complete — {len(markdown_text)} characters")
