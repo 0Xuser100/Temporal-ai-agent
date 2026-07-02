@@ -24,10 +24,11 @@ app = FastAPI(
 
 class ProcessPDFRequest(BaseModel):
     s3_path: str
-
 class ProcessPDFExecuteResponse(BaseModel):
     workflow_id: str
     results: dict
+class ProcessPDFStartResponse(BaseModel):
+    workflow_id: str
 
 async def get_temporal_client() -> Client:
     return await Client.connect(
@@ -41,7 +42,9 @@ async def get_temporal_client() -> Client:
 async def health():
     return {"status":"ok"}
 
-
+# ====================
+# PDF PROCESS
+# ====================
 @app.post("/process-pdf",response_model=ProcessPDFExecuteResponse)
 async def process_pdf(request:ProcessPDFRequest):
     workflow_id=f"pdf-pipeline-{uuid.uuid4()}"
@@ -62,3 +65,50 @@ async def process_pdf(request:ProcessPDFRequest):
         workflow_id=workflow_id,
         results=results
     )
+
+
+@app.post("/process-pdf/start", response_model=ProcessPDFStartResponse)
+async def process_pdf(request: ProcessPDFRequest):
+    
+    workflow_id = f"pdf-pipeline-{uuid.uuid4()}"
+
+    client = await get_temporal_client()
+
+    results = await client.start_workflow(
+        "PDFPipelineWorkflow",
+        args=[
+            {
+                "s3_path": request.s3_path,
+            }
+        ],
+        id=workflow_id,
+        task_queue=TEMPORAL_PDF_PROCESS_TASK_QUEUE,
+        result_type=dict,
+    )
+
+    return ProcessPDFStartResponse(
+        workflow_id=workflow_id,
+    )
+
+@app.get("/workflow/status/{workflow_id}")
+async def get_workflow_status(workflow_id: str):
+    client = await get_temporal_client()
+
+    handle = client.get_workflow_handle(
+        workflow_id,
+        result_type=dict
+    )
+    desc = await handle.describe()
+    workflow_status = desc.status
+
+    try:
+        result = await handle.result()
+    except:
+        result = None
+
+    return {
+        "workflow_id": workflow_id,
+        "workflow_status": workflow_status.name,
+        "workflow_result": result
+    }
+
