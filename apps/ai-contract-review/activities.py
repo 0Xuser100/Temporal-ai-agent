@@ -1,6 +1,5 @@
 import os
 import math
-import tempfile
 from pathlib import Path
 from dataclasses import dataclass
 

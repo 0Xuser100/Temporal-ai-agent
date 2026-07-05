@@ -1,120 +1,147 @@
-# Temporal Agent — PDF Extraction Pipeline
+# Temporal Agent — AI Contract Review Pipeline
 
-Hands-on Python project for learning [Temporal](https://temporal.io/) by building the same
-PDF-to-Markdown pipeline twice:
+Hands-on Python project for learning [Temporal](https://temporal.io/) by building an
+AI-powered contract review system:
 
-1. **Plain Python** — a simple synchronous script.
-2. **Temporal** — the same pipeline as a durable workflow with retries and timeouts.
-
-Both apps download a PDF from S3, extract its text to Markdown with `pymupdf4llm`, and
-upload the `.md` result back to S3.
+- **`apps/client-app`** — FastAPI service that starts workflows and talks to Temporal
+  (Signals, Queries, Updates). It never imports worker code.
+- **`apps/ai-contract-review`** — Temporal worker that runs the workflows: fan-out to
+  child workflows (one per PDF), extract text from S3 PDFs, summarize with an LLM,
+  synthesize a risk report, then pause for human-in-the-loop approval.
 
 ## Repository layout
 
 ```text
 .
 ├── apps/
-│   ├── pdf-extractions-01/            # Plain Python baseline (no Temporal)
-│   │   └── process_pdf.py
-│   └── pdf-extraction-02-temporal/    # Same pipeline as a Temporal workflow
-│       ├── worker.py                  # Runs the workflow + activities
-│       ├── workflow_process_pdf.py    # PDFPipelineWorkflow definition
-│       ├── activities.py              # download / extract / upload activities
-│       └── helpers.py                 # input/output dataclasses + S3 helpers
+│   ├── client-app/                  # FastAPI client API (start/query/signal workflows)
+│   │   └── main.py
+│   └── ai-contract-review/          # Temporal worker + workflows
+│       ├── worker.py                # Runs the workflows + activities
+│       ├── parent_workflow.py       # ContractReviewWorkflow (fan-out + HITL review)
+│       ├── child_workflow.py        # PDFSummaryWorkflow (extract + summarize one PDF)
+│       ├── activities.py            # extract_pdf / call_llm activities
+│       └── prompts.py               # LLM prompt templates
 └── setup/
-    └── samples-server/                # Local Temporal server (Docker Compose)
+    └── samples-server/              # Local Temporal server (Docker Compose)
 ```
 
 ## Prerequisites
 
-- **Python 3.11+**
-- **[uv](https://docs.astral.sh/uv/)** — used to manage dependencies and run the apps
+- **Python 3.12+**
+- **[uv](https://docs.astral.sh/uv/)** — dependency management and running the apps
 - **Docker + Docker Compose** — for the local Temporal server
-- Access to an **S3-compatible bucket** (AWS S3, MinIO, etc.)
+- Access to an **S3-compatible bucket** (AWS S3, MinIO, etc.) holding the contract PDFs
+- An **OpenAI-compatible API key** for the LLM activity
 
-## Configuration
+## How to run
 
-Each app reads its settings from a `.env` file. Copy the example and fill in your values:
+### Step 0 — Install uv (first time only)
 
-```bash
-cp apps/pdf-extractions-01/.env.example apps/pdf-extractions-01/.env
-cp apps/pdf-extraction-02-temporal/.env.example apps/pdf-extraction-02-temporal/.env
+All apps are run with [uv](https://docs.astral.sh/uv/), which also installs their
+dependencies automatically on first run.
+
+**Windows (PowerShell):**
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-Required variables:
-
-| Variable | Used by | Description |
-|---|---|---|
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | both | S3 credentials |
-| `AWS_REGION` | both | e.g. `us-west-2` |
-| `AWS_S3_ENDPOINT_URL` | both | S3 endpoint URL |
-| `S3_BUCKET` | both | Target bucket name |
-| `TEMP_DIR` | both | Local scratch dir for downloads (e.g. `pdf-pipeline`) |
-| `TEMPORAL_HOST` | app 02 | Temporal frontend, e.g. `localhost:7233` |
-| `TEMPORAL_NAMESPACE` | app 02 | e.g. `default` |
-| `TEMPORAL_PDF_PROCESS_TASK_QUEUE` | app 02 | e.g. `pdf-pipeline-queue` |
-
-## Quick start
-
-### Example 1 — Plain Python pipeline
-
-The non-Temporal baseline. Just run the script with an S3 path:
+**macOS / Linux:**
 
 ```bash
-cd apps/pdf-extractions-01
-uv run python process_pdf.py s3://your-bucket/path/to/file.pdf
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-What it does:
+Verify the install with `uv --version` (restart your terminal if the command is not
+found).
 
-1. Downloads the PDF from S3.
-2. Extracts Markdown with `pymupdf4llm`.
-3. Uploads the generated `.md` file back to S3.
+Then run the three pieces **in this order**:
 
-### Example 2 — Temporal pipeline
-
-**Step 1 — Start the local Temporal server:**
+### Step 1 — Start the Temporal server (Docker)
 
 ```bash
 cd setup/samples-server/compose
 docker compose -f docker-compose-postgres.yml up -d
 ```
 
-Local endpoints:
+Local endpoints once it is up:
 
 - Temporal Frontend (gRPC): `localhost:7233`
 - Temporal Web UI: <http://localhost:8080>
 
-**Step 2 — Start the worker** (it connects to Temporal and polls the task queue):
+### Step 2 — Start the client app (FastAPI)
 
 ```bash
-cd apps/pdf-extraction-02-temporal
+cd apps/client-app
+cp .env.example .env        # first time only — defaults work for the local server
+uv run uvicorn main:app --reload
+```
+
+The API is now available at <http://localhost:8000> (interactive docs at
+<http://localhost:8000/docs>).
+
+### Step 3 — Start the contract-review worker
+
+```bash
+cd apps/ai-contract-review
+cp .env.example .env        # first time only — fill in S3 + OpenAI credentials
 uv run python worker.py
 ```
 
-You should see: `Worker started. Polling task queue: 'pdf-pipeline-queue'`
+You should see: `Worker running on: 'contract-review-queue'`
 
-**Step 3 — Trigger a workflow.** With the worker running, start a
-`PDFPipelineWorkflow` run from the Temporal Web UI (or the `temporal` CLI),
-passing an input of `{ "s3_path": "s3://your-bucket/path/to/file.pdf" }`.
-Watch it execute live in the UI at <http://localhost:8080>.
+### Step 4 — Trigger a review
 
-## What you learn from each stage
+With all three running, start a review through the client app:
 
-**Plain Python pipeline**
-- a straightforward synchronous batch script
-- moving files between S3 and local temp storage
+```bash
+curl -X POST http://localhost:8000/contract-review/start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "s3_paths": [
+      "s3://temporal-dev/ContractReview/nda-innovate-consultpro.pdf",
+      "s3://temporal-dev/ContractReview/software-license-globalsoft.pdf"
+    ],
+    "max_revisions": 2
+  }'
+```
 
-**Temporal pipeline**
-- workflow vs. activity boundaries
-- automatic retries and timeouts (see `DEFAULT_RETRY` in `workflow_process_pdf.py`)
-- running the worker separately from whatever triggers the workflow
-- durable orchestration around the exact same business logic
+Then use the returned `workflow_id` to check status, read the report, and
+approve/revise — see [apps/client-app/README.md](apps/client-app/README.md) for the
+full endpoint list. Watch the workflow execute live at <http://localhost:8080>.
 
-## Suggested learning order
+## Configuration
 
-1. Run the plain script and watch it process a PDF end to end.
-2. Start the Temporal server and worker, then trigger the workflow.
-3. Open the Temporal Web UI and inspect the workflow history, activities, and retries.
-4. Compare `process_pdf.py` with `workflow_process_pdf.py` + `activities.py` to see how
-   the same steps map onto Temporal's model.
+Each app reads its settings from a `.env` file (copy `.env.example` in each app dir):
+
+| Variable | Used by | Description |
+|---|---|---|
+| `TEMPORAL_HOST` | both | Temporal frontend, e.g. `localhost:7233` |
+| `TEMPORAL_NAMESPACE` | both | e.g. `default` |
+| `TEMPORAL_CONTRACT_REVIEW_TASK_QUEUE` | client-app | e.g. `contract-review-queue` |
+| `TEMPORAL_PDF_PROCESS_TASK_QUEUE` | client-app | legacy PDF queue name |
+| `TEMPORAL_TASK_QUEUE` | worker | must match the client queue, e.g. `contract-review-queue` |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | worker | S3 credentials |
+| `AWS_REGION` | worker | e.g. `us-west-2` |
+| `AWS_S3_ENDPOINT_URL` | worker | S3 endpoint URL |
+| `S3_BUCKET` | worker | Bucket holding the contract PDFs |
+| `TEMP_DIR` | worker | Local scratch dir for downloads (e.g. `pdf-pipeline`) |
+| `OPENAI_API_KEY` | worker | API key for the LLM |
+| `OPENAI_MODEL` | worker | e.g. `gpt-4.1-mini-2025-04-14` |
+
+> The client-app task queue (`TEMPORAL_CONTRACT_REVIEW_TASK_QUEUE`) and the worker task
+> queue (`TEMPORAL_TASK_QUEUE`) must be the same value, otherwise the worker never
+> picks up the workflow.
+
+## What you learn from this project
+
+- **Client/worker decoupling** — the FastAPI app starts workflows by string name; only
+  the worker imports the workflow code.
+- **Fan-out with child workflows** — one `PDFSummaryWorkflow` per PDF, running in
+  parallel, with `ParentClosePolicy` control.
+- **Activities with heartbeats, retries, and timeouts** — see `DEFAULT_RETRY_POLICY`
+  in the workflow files.
+- **Human-in-the-loop** — the workflow pauses on `workflow.wait_condition` until a
+  reviewer submits a decision via an **Update**, with **Signals** for reviewer
+  assignment and **Queries** for status/report reads.
