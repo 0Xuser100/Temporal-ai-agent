@@ -129,7 +129,14 @@ async def get_review_status(workflow_id: str):
             workflow_state = await handle.query("get_status", result_type=dict)
         except Exception as e:
             workflow_state = {"error": str(e)}
-    
+    elif desc.status == WES.COMPLETED:
+        result = await handle.result()
+        workflow_state = {
+            "status":         "completed",
+            "pdfs_processed": len(result["sources"]),
+            "approved_by":    result["approved_by"],
+        }
+
     return {
         "workflow_id": workflow_id,
         "execution_status": desc.status.name,
@@ -151,7 +158,16 @@ async def get_review_report(workflow_id: str):
             workflow_report = await handle.query("get_report", result_type=dict)
         except Exception as e:
             workflow_report = {"error": str(e)}
-    
+    elif desc.status == WES.COMPLETED:
+        # Workflow finished — its return value is stored in history.
+        result = await handle.result()
+        workflow_report = {
+            "status":      "completed",
+            "report":      result["report"],
+            "approved_by": result["approved_by"],
+            "sources":     result["sources"],
+        }
+
     return {
         "workflow_id": workflow_id,
         "execution_report": desc.status.name,
