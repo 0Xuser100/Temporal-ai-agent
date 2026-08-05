@@ -3,7 +3,7 @@ services:
     image: postgres:${POSTGRESQL_VERSION}
     container_name: temporal-postgresql
     ports:
-      - "5432:5432"
+      - "5632:5432"
     environment:
       POSTGRES_PASSWORD: temporal
       POSTGRES_USER: temporal

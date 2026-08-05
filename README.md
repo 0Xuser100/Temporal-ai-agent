@@ -29,34 +29,28 @@ AI-powered contract review system:
 ## Prerequisites
 
 - **Python 3.12+**
-- **[uv](https://docs.astral.sh/uv/)** — dependency management and running the apps
 - **Docker + Docker Compose** — for the local Temporal server
 - Access to an **S3-compatible bucket** (AWS S3, MinIO, etc.) holding the contract PDFs
 - An **OpenAI-compatible API key** for the LLM activity
+- **[uv](https://docs.astral.sh/uv/)** — runs both apps and installs their dependencies
+  automatically on first run. Install it once:
+
+  ```powershell
+  # Windows (PowerShell)
+  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+  ```
+
+  ```bash
+  # macOS / Linux
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+
+  Verify with `uv --version` (restart your terminal if the command is not found).
 
 ## How to run
 
-### Step 0 — Install uv (first time only)
-
-All apps are run with [uv](https://docs.astral.sh/uv/), which also installs their
-dependencies automatically on first run.
-
-**Windows (PowerShell):**
-
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-**macOS / Linux:**
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-Verify the install with `uv --version` (restart your terminal if the command is not
-found).
-
-Then run the three pieces **in this order**:
+Three processes make up the running system. Start them **in this order**, each in its
+own terminal — steps 2 and 3 keep running in the foreground.
 
 ### Step 1 — Start the Temporal server (Docker)
 
@@ -91,7 +85,11 @@ uv run python worker.py
 
 You should see: `Worker running on: 'contract-review-queue'`
 
-### Step 4 — Trigger a review
+> If the Temporal UI reports *"There are no workers polling the
+> contract-review-queue task queue"*, this step is not running — start it and the
+> queued workflows pick up automatically.
+
+## Triggering a review
 
 With all three running, start a review through the client app:
 
