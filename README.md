@@ -1,5 +1,7 @@
 # Temporal Agent — AI Contract Review Pipeline
 
+![Temporal AI Agent — Automated Contract Review](assets/banner.webp)
+
 Hands-on Python project for learning [Temporal](https://temporal.io/) by building an
 AI-powered contract review system:
 
